@@ -1,17 +1,18 @@
 import ollama
 
 
-MODEL: str = "qwen3.5:2b"
 
 
 def main():
-    pull_repsonse: ollama.ProgressRepsonse= ollama.pull(MODEL)
+    model: str = "qwen3.5:9b"
+
+    pull_repsonse: ollama.ProgressRepsonse= ollama.pull(model)
 
     if pull_repsonse.status != "success":
         print("Failed to get Model, please install ollama or start it.")
         exit(1)
 
-    print(f"{MODEL} Found.")
+    print(f"{model} Found.")
 
 
 if __name__ == "__main__":
