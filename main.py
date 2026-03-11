@@ -1,8 +1,6 @@
 import ollama
 
 
-
-
 def main():
     model: str = "qwen3.5:9b"
 
