@@ -1,4 +1,5 @@
-import ollama
+from source.taggers.ollama_tagger import Otagger
+from source.taggers.wd_tagger import WDTagger
 
 
 def main():
