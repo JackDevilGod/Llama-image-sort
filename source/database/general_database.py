@@ -338,6 +338,15 @@ class ImageDatabaseManager:
         b = hash_val & 0xFF
 
         return f"#{r:02x}{g:02x}{b:02x}"
+    
+    def get_images(self, tags: list[str]) -> list[str]:
+        image_rows = self._get_images_by_tags(tags)
+        image_paths = [_["file_path"] for _ in image_rows]
+        
+        return [_ for _ in image_paths if os.path.exists(_)]
+        
+        
+        
 
 
 if __name__ == "__main__":
