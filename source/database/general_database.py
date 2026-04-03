@@ -338,15 +338,28 @@ class ImageDatabaseManager:
         b = hash_val & 0xFF
 
         return f"#{r:02x}{g:02x}{b:02x}"
-    
+
     def get_images(self, tags: list[str]) -> list[str]:
         image_rows = self._get_images_by_tags(tags)
         image_paths = [_["file_path"] for _ in image_rows]
+        index = 0
         
-        return [_ for _ in image_paths if os.path.exists(_)]
-        
-        
-        
+        while index < len(image_paths):
+            if not os.path.exists(image_paths[index]):
+                self.remove_image(image_paths[index])
+                image_paths.pop(index)
+                continue
+            
+            index += 1
+
+        return image_paths
+
+    def remove_image(self, file_path: str) -> bool:
+        """Remove an image from the database by file path."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM images WHERE file_path = ?", (file_path,))
+            return cursor.rowcount > 0
 
 
 if __name__ == "__main__":
