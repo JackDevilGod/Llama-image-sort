@@ -1,5 +1,4 @@
 import hashlib
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -10,26 +9,23 @@ from typing import List, Optional, Tuple
 class ImageDatabaseManager:
     """Manages image metadata and tagging in SQLite database."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[Path] = None):
         """Initialize database manager with optional custom database path."""
         if db_path is None:
             self.database_path = (
                 Path(__file__).parent.joinpath("resource").joinpath("imagedatabase.db")
             )
-            self.db_path = str(self.database_path)
         else:
-            self.db_path = db_path
             self.database_path = Path(db_path)
 
-        # Ensure directory exists
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_database_exists()
 
     @contextmanager
     def _get_connection(self):
         """Context manager for safe database access."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # Enable column access by name
+        conn = sqlite3.connect(str(self.database_path))
+        conn.row_factory = sqlite3.Row
         try:
             yield conn
             conn.commit()
@@ -44,7 +40,6 @@ class ImageDatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # Create images table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS images (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +53,6 @@ class ImageDatabaseManager:
                 )
             """)
 
-            # Create tags table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +63,6 @@ class ImageDatabaseManager:
                 )
             """)
 
-            # Create image_tags junction table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS image_tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +75,6 @@ class ImageDatabaseManager:
                 )
             """)
 
-            # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_images_hash_value
                 ON images(hash_value)
@@ -98,17 +90,18 @@ class ImageDatabaseManager:
                 ON image_tags(tag_id)
             """)
 
-    def compute_hash(self, file_path: str, block_size: int = 4096) -> str:
+    def compute_hash(self, file_path: Path, block_size: int = 4096) -> str:
         """Compute MD5 hash of an image file."""
+        file_path = Path(file_path)
         hasher = hashlib.md5()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(block_size), b""):
                 hasher.update(chunk)
-        return hasher.hexdigest()[:8]  # Use first 8 characters of MD5
+        return hasher.hexdigest()[:8]
 
-    def _guess_mime_type(self, file_path: str) -> str:
+    def _guess_mime_type(self, file_path: Path) -> str:
         """Guess MIME type based on file extension."""
-        ext = os.path.splitext(file_path)[1].lower()
+        ext = file_path.suffix.lower()
         mime_types = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
@@ -123,29 +116,26 @@ class ImageDatabaseManager:
 
     def add_image(
         self,
-        file_path: str,
+        file_path: Path,
         original_filename: Optional[str] = None,
         tags: Optional[List[str]] = None,
         create_tags: bool = False,
     ) -> Tuple[int, List[str]]:
         """Add an image with tags to the database."""
+        file_path = Path(file_path)
 
-        # Validate file exists
-        if not os.path.exists(file_path):
+        if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        # Get file information
-        file_size = os.path.getsize(file_path)
+        file_size = file_path.stat().st_size
         mime_type = self._guess_mime_type(file_path)
         hash_value = self.compute_hash(file_path)
 
-        # Check if image already exists by hash
         result = self._get_image_by_hash(hash_value)
         if result:
             image_id, _ = result
             return (image_id, [])
 
-        # Insert new image
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -156,8 +146,8 @@ class ImageDatabaseManager:
                     VALUES (?, ?, ?, ?, ?, ?)
                 """,
                     (
-                        os.path.abspath(file_path),
-                        original_filename or os.path.basename(file_path),
+                        str(file_path.resolve()),
+                        original_filename or file_path.name,
                         file_size,
                         mime_type,
                         hash_value,
@@ -168,7 +158,6 @@ class ImageDatabaseManager:
 
                 added_tags: List[str] = []
 
-                # Add tags to image
                 if tags and create_tags:
                     for tag_name in tags:
                         tag_id = self._create_or_get_tag(tag_name)
@@ -205,7 +194,6 @@ class ImageDatabaseManager:
             return (image_id, added_tags)
 
         except sqlite3.IntegrityError as e:
-            # Handle duplicate insertion
             result = self._get_image_by_hash(hash_value)
             if result:
                 image_id, _ = result
@@ -217,14 +205,12 @@ class ImageDatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # Try to get existing tag
             cursor.execute("SELECT id FROM tags WHERE tag_name = ?", (tag_name,))
             result = cursor.fetchone()
 
             if result:
                 return result["id"]
 
-            # Create new tag with default color
             cursor.execute(
                 """
                 INSERT INTO tags (tag_name, color_hex)
@@ -287,7 +273,6 @@ class ImageDatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # Get image with tags
             cursor.execute(
                 """
                 SELECT i.*, GROUP_CONCAT(t.tag_name, ',') as tags
@@ -329,23 +314,21 @@ class ImageDatabaseManager:
 
     def _generate_default_color(self, tag_name: str) -> str:
         """Generate a deterministic color based on tag name."""
-        # Simple hash-based color generation
         hash_val = int(hashlib.md5(tag_name.encode()).hexdigest(), 16)
 
-        # Distribute colors across the spectrum
         r = (hash_val >> 16) & 0xFF
         g = (hash_val >> 8) & 0xFF
         b = hash_val & 0xFF
 
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def get_images(self, tags: list[str]) -> list[str]:
+    def get_images(self, tags: list[str]) -> list[Path]:
         image_rows = self._get_images_by_tags(tags)
-        image_paths = [_["file_path"] for _ in image_rows]
+        image_paths = [Path(_["file_path"]) for _ in image_rows]
         index = 0
         
         while index < len(image_paths):
-            if not os.path.exists(image_paths[index]):
+            if not image_paths[index].exists():
                 self.remove_image(image_paths[index])
                 image_paths.pop(index)
                 continue
@@ -354,15 +337,17 @@ class ImageDatabaseManager:
 
         return image_paths
 
-    def remove_image(self, file_path: str) -> bool:
+    def remove_image(self, file_path: Path) -> bool:
         """Remove an image from the database by file path."""
+        file_path = Path(file_path)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM images WHERE file_path = ?", (file_path,))
+            cursor.execute(
+                "DELETE FROM images WHERE file_path = ?", (str(file_path.resolve()),)
+            )
             return cursor.rowcount > 0
 
 
 if __name__ == "__main__":
-    # Test the database manager
     db = ImageDatabaseManager()
-    print(f"Database initialized at: {db.db_path}")
+    print(f"Database initialized at: {db.database_path}")
